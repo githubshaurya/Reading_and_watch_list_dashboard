@@ -119,3 +119,17 @@ NEXTAUTH_URL=http://localhost:3000
 # OAuth Providers (Optional but recommended)
 GOOGLE_CLIENT_ID=your-google-oauth-client-id
 GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+
+Bring these files in a folder (extension):
+background.js
+content.js
+extension_popup.html
+manifest.json
+popup.js
+
+Build a NExt.js project and bring these folders inside 'src':
+app
+lib
+models
+
+Run next.js server with `npm run dev`
