@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { 
+      width: 300px; 
+      padding: 12px; 
+      font-family: Arial, sans-serif;
+      margin: 0;
+      font-size: 13px;
+    }
+    .login-form { display: block; }
+    .status { display: none; }
+    input { 
+      width: 100%; 
+      padding: 6px; 
+      margin: 4px 0; 
+      border: 1px solid #ddd; 
+      border-radius: 3px;
+      box-sizing: border-box;
+      font-size: 12px;
+    }
+    button { 
+      width: 100%; 
+      padding: 8px; 
+      background: #007cba; 
+      color: white; 
+      border: none; 
+      border-radius: 3px; 
+      cursor: pointer;
+      margin: 2px 0;
+      font-size: 12px;
+    }
+    button:hover { background: #005a87; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    button.secondary { background: #6b7280; }
+    button.secondary:hover { background: #4b5563; }
+    .success { color: green; font-size: 11px; }
+    .error { color: red; font-size: 11px; }
+    .score-display {
+      background: #f3f4f6;
+      padding: 8px;
+      border-radius: 4px;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+    .score-high { border-left: 4px solid #10b981; }
+    .score-low { border-left: 4px solid #ef4444; }
+    .score-number { font-weight: bold; font-size: 16px; }
+    .model-info { 
+      color: #6b7280; 
+      font-size: 10px; 
+      margin-top: 4px;
+    }
+    h3 { margin: 0 0 12px 0; font-size: 14px; }
+    .threshold-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+    }
+    .threshold-row input { width: 50px; flex: none; }
+    .threshold-row label { flex: 1; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h3>ReadWatch Tracker</h3>
+  
+  <div id="loginForm" class="login-form">
+    <input type="password" id="tokenInput" placeholder="Paste JWT Token">
+    <button id="submitToken">Connect</button>
+    <button id="loginBtn" class="secondary">Get Token</button>
+    <div id="loginMessage"></div>
+  </div>
+  
+  <div id="statusPanel" class="status">
+    <div class="success">✓ Connected</div>
+    
+    <button id="analyzeBtn">Analyze Current Page</button>
+    
+    <div id="scoreDisplay" class="score-display" style="display: none;">
+      <div>Quality Score: <span class="score-number" id="scoreValue">--</span>/100</div>
+      <div id="scoreTitle" style="font-size: 11px; color: #4b5563;"></div>
+      <div class="model-info">Model: <span id="modelName">--</span></div>
+      <div class="model-info" id="saveStatus"></div>
+    </div>
+    
+    <div class="threshold-row">
+      <label>Threshold:</label>
+      <input type="number" id="thresholdInput" min="0" max="100" value="70">
+      <span>/100</span>
+    </div>
+    
+    <button id="logoutBtn">Disconnect</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
