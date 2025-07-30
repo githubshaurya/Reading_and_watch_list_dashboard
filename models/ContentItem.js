@@ -48,15 +48,19 @@ const contentItemSchema = new mongoose.Schema({
     }
   },
   
-  // Extension-specific data
+  // Extension-specific data (FIXED: Single definition)
   extensionData: {
     score: {
       type: Number,
       min: 0,
-      max: 1
+      max: 100 // Changed to 0-100 scale to match LLM output
     },
     contentType: String,
     submittedAt: Date,
+    model: String,
+    analysisMethod: String,
+    wordCount: Number,
+    analyzedAt: Date,
     analysisData: {
       topics: [String],
       sentiment: {
@@ -84,19 +88,8 @@ const contentItemSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  summary: String,
   source: String,
   status: String,
-  extensionData: {
-    score: Number,
-    summary: String,
-    analyzedAt: Date,
-    model: String
-  },
-  metadata: {
-    domain: String,
-    readingTime: Number
-  },
   createdAt: Date,
   lastViewed: Date,
   comments: [{
@@ -122,7 +115,7 @@ const contentItemSchema = new mongoose.Schema({
   isQualified: {
     type: Boolean,
     default: false,
-    index: true // NEW: Index for qualified posts query
+    index: true // Index for qualified posts query
   },
   
   // Organization

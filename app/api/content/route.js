@@ -7,6 +7,7 @@ import { connectDB } from '../../../lib/db';
 import { Comment } from '../../../models/Comment';
 import { Like } from '../../../models/Like';
 import { User } from '../../../models/User';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request) {
   try {
@@ -39,39 +40,138 @@ export async function POST(request) {
     const { action, id, update, url, title, summary, qualityScore, isFromExtension, extensionData } = body;
     const userId = session.user.id;
 
-    // FIXED: Handle extension posts (qualified content)
-      if (isFromExtension && url && title && qualityScore) {
-    // Check for duplicate URL per user
-    const existingItem = await ContentItem.findOne({ url, userId });
-    if (existingItem) {
-      return NextResponse.json({ error: 'Already posted' }, { status: 400 });
+    // Handle regular form posts (new content from AddContentForm)
+    if (!action && url && title && summary) {
+      // Check for duplicate URL per user with debugging
+      console.log(`🔍 Checking for duplicate URL: ${url} for user: ${userId}`);
+      const existingItem = await ContentItem.findOne({ url, userId });
+      
+      if (existingItem) {
+        // Instead of returning an error, update the post
+        existingItem.title = title;
+        existingItem.summary = summary;
+        if (typeof qualityScore === 'number') existingItem.qualityScore = qualityScore;
+        if (extensionData) existingItem.extensionData = extensionData;
+        existingItem.isFromExtension = !!isFromExtension;
+        existingItem.isQualified = !!isFromExtension || (typeof qualityScore === 'number' && qualityScore > 0);
+        await existingItem.save();
+        const updatedItem = await ContentItem.findById(existingItem._id)
+          .populate('userId', 'username profile.firstName profile.lastName')
+          .lean();
+        return NextResponse.json({
+          ...updatedItem,
+          _id: updatedItem._id.toString(),
+          author: updatedItem.userId,
+          saved: true,
+          likedByMe: false
+        }, { status: 200 });
+      }
+      
+      console.log(`✅ No duplicate found, creating new post`);
+
+      const newItem = await ContentItem.create({ 
+        userId, 
+        url, 
+        title, 
+        summary, 
+        likes: 0,
+        status: 'active',
+        isFromExtension: false,
+        isQualified: false // Regular posts are not automatically qualified
+      });
+
+      const populatedItem = await ContentItem.findById(newItem._id)
+        .populate('userId', 'username profile.firstName profile.lastName')
+        .lean();
+
+      return NextResponse.json({
+        ...populatedItem,
+        _id: populatedItem._id.toString(),
+        author: populatedItem.userId,
+        saved: true,
+        likedByMe: false
+      }, { status: 201 });
     }
 
-    const newItem = await ContentItem.create({ 
-      userId, 
-      url, 
-      title, 
-      summary: summary || title, 
-      likes: 0,
-      status: 'active',
-      qualityScore: qualityScore,
-      isFromExtension: true,
-      isQualified: true,
-      extensionData: extensionData
-    });
+    // Handle extension posts (qualified content)
+    if (isFromExtension && url && title && qualityScore !== undefined) {
+      console.log('[DEBUG] Incoming extension post:', { userId, url, title, qualityScore, extensionData });
+      console.log('🔍 Saving extension content for user ID:', userId);
+      // Normalize URL (remove trailing slash for matching)
+      const normalizeUrl = (u) => u ? u.replace(/\/$/, '') : '';
+      const normalizedUrl = normalizeUrl(url);
+      // Find all candidate posts for this user and similar URLs
+      const candidates = await ContentItem.find({
+        userId,
+        $or: [
+          { url: normalizedUrl },
+          { url: normalizedUrl + '/' },
+          { url: url },
+          { url: url + '/' }
+        ]
+      });
+      console.log('🔍 Candidate posts for upgrade:', candidates.map(c => ({ id: c._id, url: c.url, isFromExtension: c.isFromExtension, isQualified: c.isQualified, qualityScore: c.qualityScore })));
+      // Use the first candidate if any
+      let existingItem = candidates[0];
+      const scanId = uuidv4();
+      if (existingItem) {
+        // Overwrite previous analysis, always set isFromExtension and isQualified to true
+        existingItem.isFromExtension = true;
+        existingItem.isQualified = true;
+        existingItem.qualityScore = qualityScore;
+        existingItem.extensionData = {
+          ...extensionData,
+          scanId,
+          scannedAt: new Date().toISOString()
+        };
+        // Extra logging
+        console.log('🔍 Upgrading existing post:', {
+          id: existingItem._id,
+          url: existingItem.url,
+          isFromExtension: existingItem.isFromExtension,
+          isQualified: existingItem.isQualified,
+          qualityScore: existingItem.qualityScore,
+          extensionData: existingItem.extensionData
+        });
+        await existingItem.save();
+        // Fetch fresh from DB to ensure correct values
+        const upgraded = await ContentItem.findById(existingItem._id).lean();
+        console.log('[DEBUG] Saved/Upgraded extension post:', upgraded);
+        return NextResponse.json({
+          ...upgraded,
+          _id: upgraded._id.toString(),
+          author: upgraded.userId,
+          saved: true,
+          likedByMe: false
+        }, { status: 200 });
+      }
 
-    const populatedItem = await ContentItem.findById(newItem._id)
-      .populate('userId', 'username profile.firstName profile.lastName')
-      .lean();
-
-    return NextResponse.json({
-      ...populatedItem,
-      _id: populatedItem._id.toString(),
-      author: populatedItem.userId,
-      saved: true,
-      likedByMe: false
-    }, { status: 201 });
-  }
+      const newItem = await ContentItem.create({
+        userId,
+        url: normalizedUrl,
+        title,
+        summary: summary || title,
+        likes: 0,
+        status: 'active',
+        qualityScore: qualityScore,
+        isFromExtension: true,
+        isQualified: true,
+        extensionData: {
+          ...extensionData,
+          scanId,
+          scannedAt: new Date().toISOString()
+        }
+      });
+      // Extra logging
+      console.log('[DEBUG] Created new extension post:', newItem);
+      return NextResponse.json({
+        ...newItem.toObject(),
+        _id: newItem._id.toString(),
+        author: newItem.userId,
+        saved: true,
+        likedByMe: false
+      }, { status: 201 });
+    }
 
     // Edit post
     if (action === 'edit-post' && id && update) {
@@ -131,19 +231,6 @@ export async function POST(request) {
         await ContentItem.findByIdAndUpdate(id, { $inc: { likes: 1 } });
         return NextResponse.json({ liked: true });
       }
-    }
-
-    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
-
-    if (action === 'get-user-urls') {
-      const userItems = await ContentItem.find({ 
-        userId, 
-        status: 'active',
-        isFromExtension: true 
-      }).select('url').lean();
-      
-      const urls = userItems.map(item => item.url);
-      return NextResponse.json({ urls });
     }
 
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
@@ -266,9 +353,6 @@ export async function GET(request) {
             isFromExtension: item.isFromExtension || item.userId?.isExtensionUser,
             qualityScore: item.qualityScore || item.extensionData?.score
           };
-
-          
-    
         } catch (enrichError) {
           console.error('Error enriching item:', enrichError);
           return {

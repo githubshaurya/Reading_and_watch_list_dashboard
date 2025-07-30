@@ -45,6 +45,8 @@ export async function POST(request) {
       analyzedAt 
     } = await request.json();
 
+    const model = 'llama3.2-vision';
+
     // Only save if marked as qualified by extension
     if (!qualified) {
       return NextResponse.json({

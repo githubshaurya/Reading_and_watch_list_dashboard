@@ -86,7 +86,6 @@ const userSchema = new mongoose.Schema({
     },
     qualityThreshold: {
       type: Number,
-      default: 0.6,
       min: 0,
       max: 1
     }
@@ -133,11 +132,6 @@ const userSchema = new mongoose.Schema({
   hasLinkedExtension: {
     type: Boolean,
     default: false
-  },
-  isExtensionUser: { type: Boolean, default: false },
-  preferences: {
-  autoShare: { type: Boolean, default: true },
-  qualityThreshold: { type: Number, default: 0.6 }
   },
   loginCount: {
     type: Number,

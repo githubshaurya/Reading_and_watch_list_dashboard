@@ -1,10 +1,10 @@
 // src/app/api/extension/route.js
 import { NextResponse } from 'next/server';
-import { connectDB } from '../../../../lib/db';
-import { ContentItem } from '../../../../models/ContentItem';
-import { User } from '../../../../models/User';
-import { Follow } from '../../../../models/Follow';
-import { corsHeaders } from '../../../../lib/cors';
+import { connectDB } from '../../../lib/db';
+import { ContentItem } from '../../../models/ContentItem';
+import { User } from '../../../models/User';
+import { Follow } from '../../../models/Follow';
+import { corsHeaders } from '../../../lib/cors';
 import mongoose from 'mongoose';
 
 export async function OPTIONS(request) {

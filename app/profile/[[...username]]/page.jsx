@@ -16,6 +16,7 @@ export default function ProfilePage() {
   
   const [profile, setProfile] = useState(null);
   const [userContent, setUserContent] = useState([]);
+  const [qualifiedContent, setQualifiedContent] = useState([]);
   const [followers, setFollowers] = useState([]);
   const [following, setFollowing] = useState([]);
   const [activeTab, setActiveTab] = useState('posts');
@@ -27,6 +28,7 @@ export default function ProfilePage() {
     followersCount: 0,
     followingCount: 0
   });
+  const [qualityThreshold, setQualityThreshold] = useState(0.7); // default 70%
 
   // Get username from params or determine if it's the user's own profile
   const username = params?.username || 
@@ -81,35 +83,27 @@ export default function ProfilePage() {
         }
         setProfile(profileData);
 
-        // Fetch user's content with error handling
+        // Fetch user's content with improved error handling and debugging
         try {
-          const contentRes = await fetch(`/api/content/user/${apiUsername}`);
+          const contentRes = await fetch(`/api/content/user/${apiUsername}?includeExtension=true`);
+          console.log('🔍 Content API response status:', contentRes.status);
+          
           if (contentRes.ok) {
             const contentData = await contentRes.json();
-            const items = Array.isArray(contentData.items) ? contentData.items : [];
-            console.log('Fetched content items:', items); // Debug log
-            setUserContent(items);
-            
-            // FIXED: Count posts correctly after state is set
-            const regularPosts = items.filter(item => !item.isFromExtension && !item.isQualified);
-            const qualifiedPosts = items.filter(item => 
-              item.isFromExtension || 
-              item.isQualified || 
-              item.qualityScore > 0
-            );
-
-            console.log('Regular posts:', regularPosts.length); // Debug log
-            console.log('Qualified posts:', qualifiedPosts.length); // Debug log
-            console.log('Qualified posts details:', qualifiedPosts); // Debug log
-
-            setStats(prev => ({ 
-              ...prev, 
-              postsCount: regularPosts.length,
-              qualifiedCount: qualifiedPosts.length
+            console.log('🔍 Raw content data:', contentData);
+            // Use backend-provided arrays and stats
+            setUserContent(Array.isArray(contentData.items) ? contentData.items : []);
+            setQualifiedContent(Array.isArray(contentData.qualifiedItems) ? contentData.qualifiedItems : []);
+            setStats(prev => ({
+              ...prev,
+              postsCount: contentData.stats?.total || 0,
+              qualifiedCount: contentData.stats?.qualified || 0
             }));
+          } else {
+            console.error('❌ Content API failed:', contentRes.status, await contentRes.text());
           }
         } catch (contentError) {
-          console.warn('Failed to fetch user content:', contentError);
+          console.error('❌ Failed to fetch user content:', contentError);
           setUserContent([]);
         }
 
@@ -145,6 +139,16 @@ export default function ProfilePage() {
           }
         }
 
+        // Fetch user settings for threshold
+        const settingsRes = await fetch('/api/user/settings');
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          const threshold = settingsData.user?.preferences?.qualityThreshold;
+          if (typeof threshold === 'number') {
+            setQualityThreshold(threshold);
+          }
+        }
+
       } catch (error) {
         console.error('Error fetching profile:', error);
         setError(error.message || 'Failed to load profile');
@@ -154,48 +158,12 @@ export default function ProfilePage() {
     };
 
     fetchProfile();
-  }, [username, session?.user?.username, router, pathname]);
+  }, [username, session]);
 
-  // Listen for follow changes to update the display
-  useEffect(() => {
-    function onFollowChanged() {
-      if (profile?.user?.id) {
-        const fetchFollowData = async () => {
-          try {
-            const [followersRes, followingRes] = await Promise.allSettled([
-              fetch(`/api/user/${profile.user.id}/followers`),
-              fetch(`/api/user/${profile.user.id}/following`)
-            ]);
-
-            if (followersRes.status === 'fulfilled' && followersRes.value.ok) {
-              const followersData = await followersRes.value.json();
-              const followersArray = Array.isArray(followersData.followers) 
-                ? followersData.followers.map(follow => follow.followerId)
-                : [];
-              setFollowers(followersArray);
-              setStats(prev => ({ ...prev, followersCount: followersData.count || 0 }));
-            }
-
-            if (followingRes.status === 'fulfilled' && followingRes.value.ok) {
-              const followingData = await followingRes.value.json();
-              const followingArray = Array.isArray(followingData.following) 
-                ? followingData.following.map(follow => follow.followeeId)
-                : [];
-              setFollowing(followingArray);
-              setStats(prev => ({ ...prev, followingCount: followingData.count || 0 }));
-            }
-          } catch (error) {
-            console.warn('Failed to refresh follow data:', error);
-          }
-        };
-        
-        fetchFollowData();
-      }
-    }
-    
-    window.addEventListener('follow-changed', onFollowChanged);
-    return () => window.removeEventListener('follow-changed', onFollowChanged);
-  }, [profile?.user?.id]);
+  // For posts tab, show all posts (deduplicated, latest only)
+  // const regularPosts = userContent;
+  // For qualified tab, use qualifiedContent (already filtered by API)
+  // const qualifiedPosts = qualifiedContent;
 
   const handleGoBack = () => {
     if (window.history.length > 1) {
@@ -263,13 +231,24 @@ export default function ProfilePage() {
     return '?';
   };
 
-  // FIXED: Separate content for display - use the actual userContent state
-  const regularPosts = userContent.filter(item => !item.isFromExtension && !item.isQualified);
-  const qualifiedPosts = userContent.filter(item => 
-    item.isFromExtension || 
-    item.isQualified || 
-    item.qualityScore > 0
-  );
+  console.log('🎯 RENDER DEBUG - Content filtering results:', {
+    totalContent: userContent.length,
+    regularPosts: userContent.length,
+    qualifiedPosts: qualifiedContent.length,
+    userContentSample: userContent.slice(0, 3).map(item => ({
+      title: item.title?.substring(0, 30),
+      isFromExtension: item.isFromExtension,
+      isQualified: item.isQualified,
+      qualityScore: item.qualityScore,
+      extensionScore: item.extensionData?.score
+    })),
+    sampleQualifiedPost: qualifiedContent[0] ? {
+      title: qualifiedContent[0].title,
+      isFromExtension: qualifiedContent[0].isFromExtension,
+      qualityScore: qualifiedContent[0].qualityScore,
+      extensionScore: qualifiedContent[0].extensionData?.score
+    } : null
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -360,6 +339,7 @@ export default function ProfilePage() {
             extensionContent={profile.extensionContent}
             username={profile.user.username}
             isOwnProfile={isOwnProfile}
+            qualityThreshold={qualityThreshold}
           />
         )}
 
@@ -370,7 +350,10 @@ export default function ProfilePage() {
               {['posts', 'qualified', 'followers', 'following'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => {
+                    console.log('🎯 Tab clicked:', tab);
+                    setActiveTab(tab);
+                  }}
                   className={`py-4 px-1 border-b-2 font-medium text-sm capitalize transition-colors duration-200 ${
                     activeTab === tab
                       ? 'border-blue-500 text-blue-600 dark:text-blue-400'
@@ -385,11 +368,12 @@ export default function ProfilePage() {
 
           {/* Tab Content */}
           <div className="p-6">
+            {console.log('🎯 Current active tab:', activeTab)}
             {activeTab === 'posts' && (
               <div className="space-y-4">
-                {regularPosts.length > 0 ? (
-                  regularPosts.map(item => (
-                    <ContentCard key={item._id || item.id} item={item} showAuthor={false} />
+                {userContent.length > 0 ? (
+                  userContent.map(item => (
+                    <ContentCard key={item._id || item.id} item={item} showAuthor={false} qualityThreshold={qualityThreshold} />
                   ))
                 ) : (
                   <div className="text-center py-12">
@@ -411,54 +395,13 @@ export default function ProfilePage() {
 
             {activeTab === 'qualified' && (
               <div className="space-y-4">
-                {qualifiedPosts.length > 0 ? (
-                  qualifiedPosts.map(item => (
-                    <div key={item._id || item.id} className="border border-purple-200 rounded-lg p-4 bg-purple-50 dark:bg-purple-900/20">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                              Quality Score: {item.qualityScore || item.extensionData?.score || 'N/A'}%
-                            </span>
-                            <span className="text-xs text-purple-600 dark:text-purple-400">
-                              {item.isFromExtension ? 'Auto-discovered' : 'Qualified'}
-                            </span>
-                          </div>
-                          <h4 className="font-medium text-gray-900 dark:text-white mb-2">
-                            {item.url ? (
-                              <a 
-                                href={item.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="hover:text-purple-600 dark:hover:text-purple-400"
-                              >
-                                {item.title}
-                              </a>
-                            ) : (
-                              item.title
-                            )}
-                          </h4>
-                          {item.summary && (
-                            <p className="text-gray-600 dark:text-gray-300 text-sm mb-3">{item.summary}</p>
-                          )}
-                          <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
-                            <span>{new Date(item.createdAt).toLocaleDateString()}</span>
-                            {item.likes > 0 && (
-                              <>
-                                <span>•</span>
-                                <span>{item.likes} likes</span>
-                              </>
-                            )}
-                            {item.extensionData?.model && (
-                              <>
-                                <span>•</span>
-                                <span>Model: {item.extensionData.model}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                {console.log('🎯 Rendering qualified tab with', qualifiedContent.length, 'posts')}
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+                  Qualified Content ({stats.qualifiedCount})
+                </h3>
+                {qualifiedContent.length > 0 ? (
+                  qualifiedContent.map(item => (
+                    <ContentCard key={item._id || item.id} item={item} showAuthor={false} qualityThreshold={qualityThreshold} />
                   ))
                 ) : (
                   <div className="text-center py-12">

@@ -28,137 +28,141 @@ export async function POST(request) {
     const token = authHeader.slice(7);
     jwt.verify(token, process.env.NEXTAUTH_SECRET);
 
-    const { title, content, url, type } = await request.json();
+    const { title, content, url, type, contentType, wordCount, mediaCount, qualityIndicators, platformInfo, analysisContext } = await request.json();
 
-    try {
-      // Try local LLM first (Ollama)
-      const response = await fetch('http://localhost:11434/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'llama3.2:1b',
-          prompt: `Analyze this ${type} for quality and relevance. Rate 0-1 where 1 is excellent quality.
+    // Try different models based on available memory
+    const models = ['llama3.2-vision', 'llama3.2', 'llama2', 'mistral'];
+    let model = 'llama3.2-vision';
+    let lastError = null;
 
+    for (const modelName of models) {
+      try {
+        console.log(`Trying model: ${modelName}`);
+        
+        const response = await fetch('http://localhost:11434/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: modelName,
+            prompt: `You are an expert content quality analyst. Analyze the following content and rate its overall quality from 0-1.
+
+CONTENT TO ANALYZE:
 Title: ${title}
-Content: ${content.substring(0, 1000)}
 URL: ${url}
+Content Type: ${type} (already determined)
+Word Count: ${wordCount || 'Unknown'}
+Content Length: ${content ? content.length : 0} characters
+
+MEDIA CONTEXT:
+Images: ${mediaCount?.images || 0}
+Videos: ${mediaCount?.videos || 0}
+Has Mixed Content: ${analysisContext?.isMixedContent ? 'Yes' : 'No'}
+
+QUALITY INDICATORS:
+Has Title: ${qualityIndicators?.hasTitle ? 'Yes' : 'No'}
+Title Length: ${qualityIndicators?.titleLength || 0}
+Content Length: ${qualityIndicators?.contentLength || 0}
+Is Long Form: ${qualityIndicators?.isLongForm ? 'Yes' : 'No'}
+Is Short Form: ${qualityIndicators?.isShortForm ? 'Yes' : 'No'}
+Has Code Blocks: ${qualityIndicators?.hasCodeBlocks ? 'Yes' : 'No'}
+Has Technical Terms: ${qualityIndicators?.hasTechnicalTerms ? 'Yes' : 'No'}
+Has Research Terms: ${qualityIndicators?.hasResearchTerms ? 'Yes' : 'No'}
+Has Educational Terms: ${qualityIndicators?.hasEducationalTerms ? 'Yes' : 'No'}
+
+CONTENT TEXT:
+${content ? content.substring(0, 2000) : 'No content provided'}
+
+ANALYSIS INSTRUCTIONS:
+Focus on analyzing the QUALITY of this ${type} content. Consider:
+1. Content depth and insightfulness
+2. Credibility and authority of the source
+3. Uniqueness and originality of the information
+4. Practical value and usefulness
+5. Clarity and structure
+6. Engagement potential
+7. Appropriateness for the content type (${type})
+
+Rate the overall quality from 0-1 where:
+- 0.9-1.0: Exceptional, must-read content
+- 0.8-0.89: Very high quality, highly recommended
+- 0.7-0.79: Good quality, worth reading
+- 0.6-0.69: Decent quality, some value
+- 0.5-0.59: Average quality, mixed value
+- 0.4-0.49: Below average, limited value
+- 0.3-0.39: Poor quality, not recommended
+- 0.0-0.29: Very poor quality, avoid
 
 Respond with JSON only:
 {
-  "score": 0.8,
-  "summary": "Brief 2-3 sentence summary",
+  "score": 0.75,
+  "summary": "2-3 sentence analysis explaining the content's quality and why it received this score",
   "tags": ["tag1", "tag2", "tag3"],
-  "category": "tech|science|business|entertainment|education|news|other"
+  "category": "tech|science|business|entertainment|education|news|other",
+  "reasoning": "Brief explanation of your quality assessment"
 }`,
-          stream: false
-        }),
-        signal: AbortSignal.timeout(10000) // 10 second timeout
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        const analysis = JSON.parse(result.response);
-        
-        return NextResponse.json({
-          success: true,
-          analysis: {
-            score: Math.min(Math.max(analysis.score || 0.5, 0), 1),
-            summary: analysis.summary || title,
-            tags: (analysis.tags || []).slice(0, 5),
-            category: analysis.category || 'general'
-          }
-        }, {
-          headers: { 'Access-Control-Allow-Origin': ALLOWED_ORIGIN },
+            stream: false,
+            options: {
+              temperature: 0.3,
+              top_p: 0.9,
+              top_k: 40
+            }
+          }),
+          signal: AbortSignal.timeout(3000000) // 30 second timeout for model loading
         });
+
+        if (response.ok) {
+          const result = await response.json();
+          let analysis;
+          
+          try {
+            // Try to extract JSON from response (LLM might add extra text)
+            const jsonMatch = result.response.match(/\{[^}]*\}/);
+            const jsonStr = jsonMatch ? jsonMatch[0] : result.response;
+            analysis = JSON.parse(jsonStr);
+          } catch (parseError) {
+            console.error('Failed to parse LLM response:', parseError, result.response);
+            throw new Error('Invalid LLM response format');
+          }
+          
+          console.log(`Successfully used model: ${modelName}`);
+          
+          return NextResponse.json({
+            success: true,
+            analysis: {
+              score: Math.min(Math.max(analysis.score || 0.5, 0), 1),
+              summary: analysis.summary || title,
+              tags: (analysis.tags || []).slice(0, 5),
+              category: analysis.category || 'general',
+              reasoning: analysis.reasoning || 'Analysis completed',
+              modelUsed: modelName
+            }
+          }, {
+            headers: { 'Access-Control-Allow-Origin': ALLOWED_ORIGIN },
+          });
+        } else {
+          const errorText = await response.text();
+          lastError = `Model ${modelName} failed: ${response.status} - ${errorText}`;
+          console.log(`Model ${modelName} failed, trying next...`);
+          continue;
+        }
+      } catch (error) {
+        lastError = `Model ${modelName} error: ${error.message}`;
+        console.log(`Model ${modelName} error, trying next...`);
+        continue;
       }
-    } catch (llmError) {
-      console.log('Local LLM unavailable, using fallback analysis');
     }
 
-    // Fallback analysis
-    const fallbackAnalysis = {
-      score: calculateFallbackScore(title, content, url),
-      summary: generateFallbackSummary(title, content),
-      tags: extractFallbackTags(title, content),
-      category: categorizeFallback(title, content, url)
-    };
-
-    return NextResponse.json({
-      success: true,
-      analysis: fallbackAnalysis,
-      fallback: true
-    }, {
-      headers: { 'Access-Control-Allow-Origin': ALLOWED_ORIGIN },
-    });
+    // If all models failed, throw error
+    throw new Error(`All LLM models failed. Last error: ${lastError}`);
 
   } catch (error) {
     console.error('Extension analyze API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, {
+    return NextResponse.json({ 
+      error: 'Analysis failed', 
+      details: error.message 
+    }, {
       status: 500,
       headers: { 'Access-Control-Allow-Origin': ALLOWED_ORIGIN },
     });
   }
-}
-
-function calculateFallbackScore(title, content, url) {
-  let score = 0.5;
-  
-  // Quality indicators
-  if (content.length > 1000) score += 0.1;
-  if (title.length > 20 && title.length < 100) score += 0.1;
-  if (!url.includes('ads') && !url.includes('popup')) score += 0.1;
-  
-  // Known quality domains
-  const qualityDomains = ['medium.com', 'substack.com', 'wikipedia.org', 'github.com', 'stackoverflow.com'];
-  if (qualityDomains.some(domain => url.includes(domain))) score += 0.15;
-  
-  return Math.min(score, 1);
-}
-
-function generateFallbackSummary(title, content) {
-  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 20);
-  return sentences.slice(0, 2).join('. ').trim() || title;
-}
-
-function extractFallbackTags(title, content) {
-  const text = (title + ' ' + content).toLowerCase();
-  const commonTags = {
-    'javascript': ['javascript', 'js', 'node'],
-    'python': ['python', 'django', 'flask'],
-    'react': ['react', 'jsx', 'component'],
-    'ai': ['ai', 'artificial intelligence', 'machine learning', 'ml'],
-    'web': ['web', 'html', 'css', 'frontend'],
-    'backend': ['backend', 'api', 'server'],
-    'startup': ['startup', 'entrepreneur', 'business'],
-    'science': ['research', 'study', 'experiment']
-  };
-  
-  const tags = [];
-  Object.entries(commonTags).forEach(([tag, keywords]) => {
-    if (keywords.some(keyword => text.includes(keyword))) {
-      tags.push(tag);
-    }
-  });
-  
-  return tags.slice(0, 3);
-}
-
-function categorizeFallback(title, content, url) {
-  const text = (title + ' ' + content + ' ' + url).toLowerCase();
-  
-  const categories = {
-    'tech': ['code', 'programming', 'software', 'tech', 'development'],
-    'science': ['research', 'study', 'science', 'experiment', 'data'],
-    'business': ['business', 'startup', 'entrepreneur', 'marketing'],
-    'education': ['learn', 'tutorial', 'course', 'education', 'teach'],
-    'news': ['news', 'breaking', 'report', 'update']
-  };
-  
-  for (const [category, keywords] of Object.entries(categories)) {
-    if (keywords.some(keyword => text.includes(keyword))) {
-      return category;
-    }
-  }
-  
-  return 'general';
 }

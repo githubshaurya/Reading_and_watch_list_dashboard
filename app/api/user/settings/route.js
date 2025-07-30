@@ -26,13 +26,21 @@ export async function PUT(request) {
       avatar,
       theme,
       emailNotifications,
-      contentNotifications
+      contentNotifications,
+      qualityThreshold
     } = body;
 
-    // Basic validation
-    if (!username || !email) {
+    // Basic validation - only require username/email if they're being updated
+    if (username !== undefined && !username) {
       return NextResponse.json(
-        { error: 'Username and email are required' },
+        { error: 'Username is required when provided' },
+        { status: 400 }
+      );
+    }
+    
+    if (email !== undefined && !email) {
+      return NextResponse.json(
+        { error: 'Email is required when provided' },
         { status: 400 }
       );
     }
@@ -57,47 +65,64 @@ export async function PUT(request) {
 
     await connectDB();
 
-    // Check if username is taken by another user
-    const existingUser = await User.findOne({ 
-      username, 
-      _id: { $ne: session.user.id } 
-    });
-    
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'Username is already taken' },
-        { status: 400 }
-      );
+    // Get current user data to show before/after values
+    const currentUser = await User.findById(session.user.id).select('preferences.qualityThreshold').lean();
+    console.log('[SETTINGS DEBUG] 📊 Current threshold in DB before update:', currentUser?.preferences?.qualityThreshold);
+
+    // Check if username is taken by another user (only if username is being updated)
+    if (username !== undefined) {
+      const existingUser = await User.findOne({ 
+        username, 
+        _id: { $ne: session.user.id } 
+      });
+      
+      if (existingUser) {
+        return NextResponse.json(
+          { error: 'Username is already taken' },
+          { status: 400 }
+        );
+      }
     }
 
-    // Check if email is taken by another user
-    const existingEmail = await User.findOne({ 
-      email, 
-      _id: { $ne: session.user.id } 
-    });
-    
-    if (existingEmail) {
-      return NextResponse.json(
-        { error: 'Email is already in use' },
-        { status: 400 }
-      );
+    // Check if email is taken by another user (only if email is being updated)
+    if (email !== undefined) {
+      const existingEmail = await User.findOne({ 
+        email, 
+        _id: { $ne: session.user.id } 
+      });
+      
+      if (existingEmail) {
+        return NextResponse.json(
+          { error: 'Email is already in use' },
+          { status: 400 }
+        );
+      }
     }
 
-    // Update user in database
+    // Update user in database - only include fields that are provided
+    const updateFields = {
+      updatedAt: new Date()
+    };
+    
+    if (username !== undefined) updateFields.username = username;
+    if (email !== undefined) updateFields.email = email;
+    if (firstName !== undefined) updateFields['profile.firstName'] = firstName || '';
+    if (lastName !== undefined) updateFields['profile.lastName'] = lastName || '';
+    if (bio !== undefined) updateFields['profile.bio'] = bio || '';
+    if (avatar !== undefined) updateFields['profile.avatar'] = avatar || '';
+    if (theme !== undefined) updateFields['preferences.theme'] = theme || 'system';
+    if (emailNotifications !== undefined) updateFields['preferences.emailNotifications'] = emailNotifications;
+    if (contentNotifications !== undefined) updateFields['preferences.contentNotifications'] = contentNotifications;
+    
+    if (typeof qualityThreshold === 'number' && qualityThreshold >= 0 && qualityThreshold <= 100) {
+      updateFields['preferences.qualityThreshold'] = qualityThreshold;
+      console.log('[SETTINGS DEBUG] 🔄 Received PUT for qualityThreshold:', qualityThreshold);
+      console.log('[SETTINGS DEBUG] 📝 Updating user ID:', session.user.id);
+    }
+
     const updatedUser = await User.findByIdAndUpdate(
       session.user.id,
-      {
-        username,
-        email,
-        'profile.firstName': firstName || '',
-        'profile.lastName': lastName || '',
-        'profile.bio': bio || '',
-        'profile.avatar': avatar || '',
-        'preferences.theme': theme || 'system',
-        'preferences.emailNotifications': emailNotifications !== undefined ? emailNotifications : true,
-        'preferences.contentNotifications': contentNotifications !== undefined ? contentNotifications : true,
-        updatedAt: new Date()
-      },
+      updateFields,
       { 
         new: true,
         runValidators: true,
@@ -106,11 +131,15 @@ export async function PUT(request) {
     ).select('-password'); // Exclude password from response
 
     if (!updatedUser) {
+      console.log('[SETTINGS DEBUG] ❌ User not found or not updated for threshold:', qualityThreshold);
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
       );
     }
+    console.log('[SETTINGS DEBUG] ✅ Updated user threshold to:', updatedUser.preferences?.qualityThreshold);
+    console.log('[SETTINGS DEBUG] 📊 Before update - old threshold was:', currentUser?.preferences?.qualityThreshold);
+    console.log('[SETTINGS DEBUG] 📊 After update - new threshold is:', updatedUser.preferences?.qualityThreshold);
 
     return NextResponse.json({
       message: 'Settings updated successfully',
@@ -183,7 +212,8 @@ export async function GET(request) {
       preferences: {
         theme: user.preferences?.theme || 'system',
         emailNotifications: user.preferences?.emailNotifications !== undefined ? user.preferences.emailNotifications : true,
-        contentNotifications: user.preferences?.contentNotifications !== undefined ? user.preferences.contentNotifications : true
+        contentNotifications: user.preferences?.contentNotifications !== undefined ? user.preferences.contentNotifications : true,
+        qualityThreshold: user.preferences?.qualityThreshold
       }
     };
 

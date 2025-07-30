@@ -1,8 +1,8 @@
 // src/app/api/profile/[username]/route.js - NEW FILE
 import { NextResponse } from 'next/server';
-import { ContentItem } from '../../../../models/ContentItem';
-import { User } from '../../../../models/User';
-import { connectDB } from '../../../../lib/db';
+import { ContentItem } from '../../../models/ContentItem';
+import { User } from '../../../models/User';
+import { connectDB } from '../../../lib/db';
 
 export async function GET(request, { params }) {
   try {

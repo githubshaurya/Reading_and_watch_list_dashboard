@@ -8,7 +8,9 @@ import { FollowButton } from './FollowButton';
 import CommentSection from './CommentSection';
 import FollowerListModal from './FollowerListModal';
 
-export function ContentCard({ item, token, onEdit, onDelete }) {
+const EXTENSION_QUALITY_THRESHOLD = 70;
+
+export function ContentCard({ item, token, onEdit, onDelete, qualityThreshold }) {
   const { data: session } = useSession();
   const [likes, setLikes] = useState(item.likes || 0);
   const [liked, setLiked] = useState(item.likedByMe || false);
@@ -21,6 +23,9 @@ export function ContentCard({ item, token, onEdit, onDelete }) {
   const [editTitle, setEditTitle] = useState(item.title || '');
   const [editSummary, setEditSummary] = useState(item.summary || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Use prop or default
+  const threshold = typeof qualityThreshold === 'number' ? qualityThreshold : 0.7;
 
   // Fetch like status
   useEffect(() => {
@@ -294,8 +299,9 @@ export function ContentCard({ item, token, onEdit, onDelete }) {
             </a>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {formatDate(item.createdAt)}
-              {item.isFromExtension && (
-                <span className="ml-2 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs rounded-full">
+              {/* Show Extension tag only if post is from extension AND qualityScore > threshold */}
+              {item.isFromExtension && (item.qualityScore > threshold * 100) && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 ml-2">
                   Extension
                 </span>
               )}

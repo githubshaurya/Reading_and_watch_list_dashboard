@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const QualityContentSection = ({ extensionContent, username, isOwnProfile }) => {
+const QualityContentSection = ({ extensionContent, username, isOwnProfile, qualityThreshold }) => {
   const [activeTab, setActiveTab] = useState('content');
 
   // Better error handling and debugging
@@ -33,7 +33,7 @@ const QualityContentSection = ({ extensionContent, username, isOwnProfile }) => 
     : (extensionContent.items || extensionContent.content || []);
   
   const stats = extensionContent.stats || {};
-  const threshold = extensionContent.threshold || 60; // Default to 60%
+  const threshold = typeof qualityThreshold === 'number' ? Math.round(qualityThreshold * 100) : 70;
   const totalQualityItems = items.length;
 
   // Show debug info for own profile
