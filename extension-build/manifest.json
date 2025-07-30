@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "ReadWatch Tracker",
+  "version": "1.0.0",
+  "description": "Track and analyze your reading and watching habits with local LLM",
+  
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "scripting",
+    "notifications"
+  ],
+  
+  "host_permissions": [
+    "http://localhost:3000/*"
+  ],
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:3000/profile/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  
+  "action": {
+    "default_popup": "extension_popup.html",
+    "default_title": "ReadWatch Tracker"
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}
